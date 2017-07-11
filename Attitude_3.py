@@ -34,7 +34,7 @@ class Model:
             seq_size = self.conf.seq_size
             def process_images(img_files, attitudes):
                 img_contents = tf.map_fn(lambda f: tf.read_file(f), img_files)
-                imgs = tf.map_fn(lambda i: tf.image.decode_jpeg(i, channels=self.image_shape[-1]), img_contents)
+                imgs = tf.map_fn(lambda i: tf.image.decode_jpeg(i, channels=self.image_shape[-1]), img_contents, dtype=tf.uint8)
                 imgs = tf.divide(tf.cast(imgs, tf.float32), 255)
                 imgs.set_shape([seq_size] + self.image_shape)
                 return imgs, attitudes
