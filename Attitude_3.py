@@ -28,22 +28,29 @@ class Model:
             labels = tf.placeholder(tf.float32, [None, self.conf.seq_size] + self.label_shape)
             placeholders = {'images': images, 'labels': labels}
 
-            seq_size = self.conf.seq_size
             def process_images(img_files, attitudes):
                 # img_contents = tf.map_fn(lambda f: tf.read_file(f), img_files)
                 # imgs = tf.map_fn(lambda i: tf.image.decode_jpeg(i, channels=self.image_shape[-1]), img_contents, dtype=tf.uint8)
                 # imgs = tf.divide(tf.cast(imgs, tf.float32), 255)
                 # imgs.set_shape([seq_size] + self.image_shape)
-                sep = tf.unstack(img_files, axis=0)
-                img_c_l = tf.read_file(sep[0])
-                img_l = tf.image.decode_jpeg(img_c_l, channels=self.image_shape[-1])
-                img_l = tf.divide(tf.cast(img_l, tf.float32), 255)
-                img_l.set_shape(self.image_shape)
-                img_c_r = tf.read_file(sep[1])
-                img_r = tf.image.decode_jpeg(img_c_r, channels=self.image_shape[-1])
-                img_r = tf.divide(tf.cast(img_r, tf.float32), 255)
-                img_r.set_shape(self.image_shape)
-                imgs = tf.stack([img_l, img_r])
+
+                img_files = tf.unstack(img_files)
+                img_contents = [tf.read_file(f) for f in img_files]
+                imgs = [tf.image.decode_jpeg(c, channels=self.image_shape[-1]) for c in img_contents]
+                imgs = [tf.divide(tf.cast(i, tf.float32), 255) for i in imgs]
+                [i.set_shape(self.image_shape) for i in imgs]
+                imgs = tf.stack(imgs)
+
+                # sep = tf.unstack(img_files, axis=0)
+                # img_c_l = tf.read_file(sep[0])
+                # img_l = tf.image.decode_jpeg(img_c_l, channels=self.image_shape[-1])
+                # img_l = tf.divide(tf.cast(img_l, tf.float32), 255)
+                # img_l.set_shape(self.image_shape)
+                # img_c_r = tf.read_file(sep[1])
+                # img_r = tf.image.decode_jpeg(img_c_r, channels=self.image_shape[-1])
+                # img_r = tf.divide(tf.cast(img_r, tf.float32), 255)
+                # img_r.set_shape(self.image_shape)
+                # imgs = tf.stack([img_l, img_r])
                 return imgs, attitudes
 
             dataset = data.Dataset.from_tensor_slices((images, labels))
