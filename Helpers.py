@@ -6,10 +6,11 @@ from subprocess import Popen, PIPE
 
 
 class Configuration:
-    def __init__(self, train_log_path = './train', epochs=10, batch_size=10, dropout=0.0):
+    def __init__(self, train_log_path = './train', epochs=10, batch_size=1, seq_size=10, dropout=0.0):
         self.train_log_path = train_log_path
         self.epochs = epochs
         self.batch_size = batch_size
+        self.seq_size = seq_size
         self.keep_prob = 1-dropout
 
 
@@ -21,9 +22,11 @@ def data_at_path(path):
     attitude_strings = [file.split('_')[2] for file in files_new]
     attitudes = [[float(s.split('x')[0]), float(s.split('x')[1]), float(s.split('x')[2])]
                  for s in attitude_strings]
+    attitudes = [[[0.0, 0.0, 0.0], attitude] for attitude in attitudes]
     files_ref = [os.path.join(path, f) for f in files_ref]
     files_new = [os.path.join(path, f) for f in files_new]
-    return files_ref, files_new, attitudes
+    files = [[file_ref, file_new] for file_ref, file_new in zip(files_ref, files_new)]
+    return files, attitudes
 
 
 def log_step(step, total_steps, start_time, angle_error):
