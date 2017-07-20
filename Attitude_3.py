@@ -19,7 +19,7 @@ class Model:
 
         self.dataset_placeholders, self.train_dataset, self.iterator = self.create_input_pipeline()
         self.images, self.labels = self.iterator.get_next()
-        self.model = self.build_model()
+        self.model = self.build_model_recurrent()
         self.saver = tf.train.Saver()
 
     def create_input_pipeline(self):
@@ -45,6 +45,32 @@ class Model:
             iterator = data.Iterator.from_dataset(train_set)
 
         return placeholders, train_set, iterator
+
+    def build_model_recurrent(self):
+        with tf.variable_scope('model'):
+            image_features = self.extract_image_features()
+            state_size = 1024
+            recurrent_features = self.extract_recurrent_features(image_features, state_size)
+            attitudes = self.extract_attitudes(recurrent_features, state_size)
+        return attitudes
+
+    def extract_recurrent_features(self, image_features, state_size):
+        with tf.variable_scope('recurrent_feature_extraction'):
+            cell = tf.contrib.rnn.BasicLSTMCell(state_size)
+            outputs, _ = tf.nn.dynamic_rnn(cell, image_features,
+                                           initial_state=cell.zero_state(batch_size=self.conf.batch_size,
+                                                                         dtype=tf.float32))
+            outputs = tf.split(outputs, [1, self.conf.seq_size-1], axis=1)[1]
+        return outputs
+
+    def extract_attitudes(self, recurrent_features, state_size):
+        with tf.variable_scope('attitude_extraction'):
+            recurrent_features = tf.reshape(recurrent_features, [-1, state_size])
+            weights = hp.weight_variables([state_size] + self.label_shape)
+            attitudes = tf.matmul(recurrent_features, weights)
+            attitudes = tf.reshape(attitudes, [-1, self.conf.seq_size] + self.label_shape)
+            attitudes = tf.nn.dropout(attitudes, keep_prob=self.keep_prob_placeholder)
+        return attitudes
 
     def build_model(self):
         with tf.variable_scope('model'):
