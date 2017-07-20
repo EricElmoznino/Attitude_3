@@ -49,7 +49,7 @@ class Model:
     def build_model_recurrent(self):
         with tf.variable_scope('model'):
             image_features = self.extract_image_features()
-            state_size = 1024
+            state_size = 512
             recurrent_features = self.extract_recurrent_features(image_features, state_size)
             attitudes = self.extract_attitudes(recurrent_features, state_size)
         return attitudes
@@ -68,7 +68,7 @@ class Model:
             recurrent_features = tf.reshape(recurrent_features, [-1, state_size])
             weights = hp.weight_variables([state_size] + self.label_shape)
             attitudes = tf.matmul(recurrent_features, weights)
-            attitudes = tf.reshape(attitudes, [-1, self.conf.seq_size] + self.label_shape)
+            attitudes = tf.reshape(attitudes, [-1, self.conf.seq_size-1] + self.label_shape)
             attitudes = tf.nn.dropout(attitudes, keep_prob=self.keep_prob_placeholder)
         return attitudes
 
