@@ -54,8 +54,6 @@ class Model:
             encoder_outputs = self.encode(image_features, encode_decode_state_size)
             decoder_outputs = self.decode(encoder_outputs, encode_decode_state_size)
 
-            decoder_outputs = tf.Print(decoder_outputs, [tf.shape(decoder_outputs)])
-
             return decoder_outputs
 
     def extract_image_features(self):
