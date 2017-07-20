@@ -25,7 +25,7 @@ class Model:
     def create_input_pipeline(self):
         with tf.variable_scope('input_pipeline'):
             images = tf.placeholder(tf.string, [None, self.conf.seq_size])
-            labels = tf.placeholder(tf.float32, [None, self.conf.seq_size] + self.label_shape)
+            labels = tf.placeholder(tf.float32, [None, self.conf.seq_size-1] + self.label_shape)
             placeholders = {'images': images, 'labels': labels}
 
             def process_images(img_files, attitudes):
@@ -54,7 +54,7 @@ class Model:
             encoder_outputs = self.encode(image_features, encode_decode_state_size)
             decoder_outputs = self.decode(encoder_outputs, encode_decode_state_size)
 
-            # decoder_outputs = tf.Print(decoder_outputs, [tf.gather_nd(decoder_outputs, [0,0]),tf.gather_nd(decoder_outputs, [0,1])])
+            decoder_outputs = tf.Print(decoder_outputs, [tf.shape(decoder_outputs)])
 
             return decoder_outputs
 
@@ -96,7 +96,7 @@ class Model:
 
             train_helper = tf.contrib.seq2seq.ScheduledOutputTrainingHelper(
                 self.labels,
-                tf.constant(self.conf.seq_size, shape=[self.conf.batch_size]),
+                tf.constant(self.conf.seq_size-1, shape=[self.conf.batch_size]),
                 0.0
             )
             decoder = tf.contrib.seq2seq.BasicDecoder(cell, train_helper,
