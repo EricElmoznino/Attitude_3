@@ -19,7 +19,7 @@ class Model:
 
         self.dataset_placeholders, self.train_dataset, self.iterator = self.create_input_pipeline()
         self.images, self.labels = self.iterator.get_next()
-        self.model = self.build_model_two_channel_deep()
+        self.model = self.build_model()
         self.saver = tf.train.Saver()
 
     def create_input_pipeline(self):
@@ -29,28 +29,12 @@ class Model:
             placeholders = {'images': images, 'labels': labels}
 
             def process_images(img_files, attitudes):
-                # img_contents = tf.map_fn(lambda f: tf.read_file(f), img_files)
-                # imgs = tf.map_fn(lambda i: tf.image.decode_jpeg(i, channels=self.image_shape[-1]), img_contents, dtype=tf.uint8)
-                # imgs = tf.divide(tf.cast(imgs, tf.float32), 255)
-                # imgs.set_shape([seq_size] + self.image_shape)
-
                 img_files = tf.unstack(img_files)
                 img_contents = [tf.read_file(f) for f in img_files]
                 imgs = [tf.image.decode_jpeg(c, channels=self.image_shape[-1]) for c in img_contents]
                 imgs = [tf.divide(tf.cast(i, tf.float32), 255) for i in imgs]
                 [i.set_shape(self.image_shape) for i in imgs]
                 imgs = tf.stack(imgs)
-
-                # sep = tf.unstack(img_files, axis=0)
-                # img_c_l = tf.read_file(sep[0])
-                # img_l = tf.image.decode_jpeg(img_c_l, channels=self.image_shape[-1])
-                # img_l = tf.divide(tf.cast(img_l, tf.float32), 255)
-                # img_l.set_shape(self.image_shape)
-                # img_c_r = tf.read_file(sep[1])
-                # img_r = tf.image.decode_jpeg(img_c_r, channels=self.image_shape[-1])
-                # img_r = tf.divide(tf.cast(img_r, tf.float32), 255)
-                # img_r.set_shape(self.image_shape)
-                # imgs = tf.stack([img_l, img_r])
                 return imgs, attitudes
 
             dataset = data.Dataset.from_tensor_slices((images, labels))
@@ -63,48 +47,72 @@ class Model:
         return placeholders, train_set, iterator
 
     def build_model(self):
-        ref_features = self.extract_image_features(self.images_ref)
-        new_features = self.extract_image_features(self.images_ref)
+        with tf.variable_scope('model'):
+            image_features = self.extract_image_features()
 
-    def build_model_two_channel_deep(self):
+            encode_decode_state_size = 512
+            encoder_outputs = self.encode(image_features, encode_decode_state_size)
+            decoder_outputs = self.decode(encoder_outputs, encode_decode_state_size)
+
+            # decoder_outputs = tf.Print(decoder_outputs, [tf.gather_nd(decoder_outputs, [0,0]),tf.gather_nd(decoder_outputs, [0,1])])
+
+            return decoder_outputs
+
+    def extract_image_features(self):
         filter_sizes = [[4, 4], [4, 4], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3]]
         channel_sizes = [20, 40, 40, 80, 80, 160, 160, 320]
         pools = [True, False, True, False, True, False, False, False]
-        fully_connected_sizes = [1024, 1024]
-        with tf.variable_scope('model'):
+
+        with tf.variable_scope('image_feature_extraction'):
+            features = tf.reshape(self.images, [-1] + self.image_shape)
+
             with tf.variable_scope('convolution'):
-                images_ref, images_new = tf.unstack(self.images, axis=1)
-                model = tf.concat([images_ref, images_new], axis=3)
                 for i, (filter_size, channel_size, pool) in enumerate(zip(filter_sizes, channel_sizes, pools)):
                     with tf.variable_scope('layer_' + str(i)):
-                        model = hp.convolve(model, filter_size, int(model.shape[-1]), channel_size, pad=True)
-                        model = tf.nn.relu(model)
-                        if pool: model = hp.max_pool(model, [2, 2], pad=True)
-            with tf.variable_scope('fully_connected'):
-                input_size = int(model.shape[1] * model.shape[2] * model.shape[3])
-                model = tf.reshape(model, [-1, input_size])
-                with tf.variable_scope('layer_1'):
-                    weights = hp.weight_variables([input_size, fully_connected_sizes[0]])
-                    biases = hp.bias_variables([fully_connected_sizes[0]])
-                    model = tf.add(tf.matmul(model, weights), biases)
-                    model = tf.nn.relu(model)
-                with tf.variable_scope('layer_2'):
-                    weights = hp.weight_variables([fully_connected_sizes[0], fully_connected_sizes[1]])
-                    biases = hp.bias_variables([fully_connected_sizes[1]])
-                    model = tf.add(tf.matmul(model, weights), biases)
-                    model = tf.nn.relu(model)
-            with tf.variable_scope('output_layer'):
-                weights = hp.weight_variables([fully_connected_sizes[-1]] + self.label_shape)
-                model = tf.matmul(model, weights)
-                model = tf.nn.dropout(model, keep_prob=self.keep_prob_placeholder)
-        return model
+                        features = hp.convolve(features, filter_size, int(features.shape[-1]), channel_size, pad=True)
+                        features = tf.nn.relu(features)
+                        if pool: features = hp.max_pool(features, [2, 2], pad=True)
 
-    def extract_image_features(self, image):
-        pass
+            input_size = int(features.shape[1] * features.shape[2] * features.shape[3])
+            features = tf.reshape(features, [-1, self.conf.seq_size, input_size])
+            features = tf.nn.dropout(features, keep_prob=self.keep_prob_placeholder)
+
+        return features
+
+    def encode(self, image_features, state_size):
+        with tf.variable_scope('encoder'):
+            cell = tf.contrib.rnn.BasicLSTMCell(state_size)
+            encoder_outputs, _ = tf.nn.dynamic_rnn(cell, image_features,
+                                                   initial_state=cell.zero_state(batch_size=self.conf.batch_size,
+                                                                                 dtype=tf.float32))
+        return encoder_outputs
+
+    def decode(self, encoder_outputs, state_size):
+        with tf.variable_scope('decoder'):
+            attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(num_units=state_size, memory=encoder_outputs)
+            cell = tf.contrib.rnn.BasicLSTMCell(state_size)
+            cell = tf.contrib.seq2seq.AttentionWrapper(cell, attention_mechanism)
+            cell = tf.contrib.rnn.OutputProjectionWrapper(cell, 3)
+
+            train_helper = tf.contrib.seq2seq.ScheduledOutputTrainingHelper(
+                self.labels,
+                tf.constant(self.conf.seq_size, shape=[self.conf.batch_size]),
+                0.0
+            )
+            decoder = tf.contrib.seq2seq.BasicDecoder(cell, train_helper,
+                                                      initial_state=cell.zero_state(batch_size=self.conf.batch_size,
+                                                                                    dtype=tf.float32))
+            decoder_outputs = tf.contrib.seq2seq.dynamic_decode(decoder, maximum_iterations=self.conf.seq_size)
+            return decoder_outputs[0].rnn_output
 
     def train(self, train_path):
         with tf.variable_scope('training'):
-            sqr_dif = tf.reduce_sum(tf.square(self.model - tf.unstack(self.labels, axis=1)[1]), 1)
+            sqr_dif = tf.reduce_sum(
+                tf.square(
+                    tf.reshape(self.model, [-1]+self.label_shape) - tf.reshape(self.labels, [-1]+self.label_shape)
+                ),
+                1
+            )
             mse = tf.reduce_mean(sqr_dif, name='mean_squared_error')
             angle_error = tf.reduce_mean(tf.sqrt(sqr_dif), name='mean_angle_error')
             tf.summary.scalar('angle_error', angle_error)
