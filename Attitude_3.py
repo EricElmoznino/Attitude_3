@@ -54,25 +54,7 @@ class Model:
             attitudes = self.extract_attitudes(recurrent_features, state_size)
         return attitudes
 
-    def extract_recurrent_features(self, image_features, state_size):
-        with tf.variable_scope('recurrent_feature_extraction'):
-            cell = tf.contrib.rnn.BasicLSTMCell(state_size)
-            outputs, _ = tf.nn.dynamic_rnn(cell, image_features,
-                                           initial_state=cell.zero_state(batch_size=self.conf.batch_size,
-                                                                         dtype=tf.float32))
-            outputs = tf.split(outputs, [1, self.conf.seq_size-1], axis=1)[1]
-        return outputs
-
-    def extract_attitudes(self, recurrent_features, state_size):
-        with tf.variable_scope('attitude_extraction'):
-            recurrent_features = tf.reshape(recurrent_features, [-1, state_size])
-            weights = hp.weight_variables([state_size] + self.label_shape)
-            attitudes = tf.matmul(recurrent_features, weights)
-            attitudes = tf.reshape(attitudes, [-1, self.conf.seq_size-1] + self.label_shape)
-            attitudes = tf.nn.dropout(attitudes, keep_prob=self.keep_prob_placeholder)
-        return attitudes
-
-    def build_model(self):
+    def build_model_seq2seq(self):
         with tf.variable_scope('model'):
             image_features = self.extract_image_features()
 
@@ -102,6 +84,24 @@ class Model:
             features = tf.nn.dropout(features, keep_prob=self.keep_prob_placeholder)
 
         return features
+
+    def extract_recurrent_features(self, image_features, state_size):
+        with tf.variable_scope('recurrent_feature_extraction'):
+            cell = tf.contrib.rnn.BasicLSTMCell(state_size)
+            outputs, _ = tf.nn.dynamic_rnn(cell, image_features,
+                                           initial_state=cell.zero_state(batch_size=self.conf.batch_size,
+                                                                         dtype=tf.float32))
+            outputs = tf.split(outputs, [1, self.conf.seq_size-1], axis=1)[1]
+        return outputs
+
+    def extract_attitudes(self, recurrent_features, state_size):
+        with tf.variable_scope('attitude_extraction'):
+            recurrent_features = tf.reshape(recurrent_features, [-1, state_size])
+            weights = hp.weight_variables([state_size] + self.label_shape)
+            attitudes = tf.matmul(recurrent_features, weights)
+            attitudes = tf.reshape(attitudes, [-1, self.conf.seq_size-1] + self.label_shape)
+            attitudes = tf.nn.dropout(attitudes, keep_prob=self.keep_prob_placeholder)
+        return attitudes
 
     def encode(self, image_features, state_size):
         with tf.variable_scope('encoder'):
@@ -140,7 +140,7 @@ class Model:
             mse = tf.reduce_mean(sqr_dif, name='mean_squared_error')
             angle_error = tf.reduce_mean(tf.sqrt(sqr_dif), name='mean_angle_error')
             tf.summary.scalar('angle_error', angle_error)
-            optimizer = tf.train.AdamOptimizer().minimize(mse)
+            optimizer = tf.train.AdamOptimizer(learning_rate=0.01).minimize(mse)
 
         summaries = tf.summary.merge_all()
         if os.path.exists(self.conf.train_log_path):
